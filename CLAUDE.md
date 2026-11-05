@@ -52,7 +52,7 @@ Actúa como **profesor de desarrollo**:
 | 1 | `docker-compose.yml` con QuickPizza en red propia `perf-net`. Explicar redes de Docker, resolución por nombre de contenedor y por qué importa para Jenkins. Healthcheck y verificar que responde | ✅ Hecha |
 | 2 | Primer test smoke con pocos VUs. Explicar anatomía (`options`, `default function`, `check`, `sleep`) y el resumen (`http_req_duration`, `p(95)`, `http_req_failed`…). `BASE_URL` como variable de entorno y por qué no se hardcodea | ✅ Hecha |
 | 3 | Plan de pruebas en `docs/plan-de-pruebas.md` (tabla: objetivo, escenario, carga, duración, criterio de aceptación). Explicar VU, iteración, escenario y su relación con el Thread Group | ✅ Hecha |
-| 4 | Implementar los scripts reutilizando `k6/lib/` (helpers de auth, thresholds, datos). Explicar `SharedArray` frente al CSV Data Set. Usar `check`, `group`, `scenarios`, `thresholds` explicando cada uno | ⏭️ Siguiente |
+| 4 | Implementar los scripts reutilizando `k6/lib/` (helpers de auth, thresholds, datos). Explicar `SharedArray` frente al CSV Data Set. Usar `check`, `group`, `scenarios`, `thresholds` explicando cada uno | 🔄 4a hecha (lib + smoke + load); falta 4b (stress, spike, soak) |
 | 5 | Jenkins en el compose (misma red). Antes: opciones para ejecutar k6 desde Jenkins (contenedor `grafana/k6` como agente/paso vs. imagen custom de Jenkins con k6) con pros y contras y recomendación. Explicar el acceso a Docker desde Jenkins y sus implicaciones de seguridad | ⏳ |
 | 6 | `Jenkinsfile` declarativo: levantar/verificar app → smoke → load → publicar resultados (JSON/HTML como artefacto). Si falla un threshold, falla el build (equivalente automatizado de las aserciones de JMeter). Parametrizar el tipo de prueba | ⏳ |
 | 7 | (Opcional) InfluxDB + Grafana, enviar métricas de k6, dashboard. Comparar con Listeners/reportes de JMeter | ⏳ |
@@ -70,7 +70,7 @@ Actúa como **profesor de desarrollo**:
 
 Flujos mínimos: endpoints públicos, login/registro, generación de pizza autenticada y rating.
 
-## Estado actual (al cerrar la Fase 3)
+## Estado actual (Fase 4a terminada, falta 4b)
 
 ### Entorno verificado
 - Windows 11 Home Single Language 10.0.26200, 64 bits. Docker Desktop con backend **WSL 2**.
@@ -98,7 +98,30 @@ fase, actualizarla al cerrar cada fase), `.gitignore`, este `CLAUDE.md`.
 
 ### Decisiones y pendientes
 - **git:** rama `calidad`. Fases 1 y 2 ya commiteadas por el usuario. El usuario hace los
-  commits; Claude solo avisa y propone mensaje. **Pendiente:** commit de la Fase 3.
+  commits; Claude solo avisa y propone mensaje. **Pendiente:** commit de la Fase 3 (si no lo hizo)
+  y de la 4a.
+
+### Decisiones de la Fase 4a
+- Estructura elegida: **scripts finos + `k6/lib/`** (no un script único con perfiles). Datos en
+  **JSON** (no CSV). Fase 4 dividida en 4a (lib + smoke + load) y 4b (stress, spike, soak).
+- `lib/config.js`: BASE_URL obligatoria, `thinkTime(min, max)`, `enteroAleatorio()`. **Sin
+  imports remotos** (jslib) para no depender de internet en Jenkins.
+- `lib/auth.js`: `crearUsuarios(n)` para `setup()` con prefijo `k6_<timestamp>` (un registro
+  duplicado da 400); `obtenerToken()` hace login la primera vez y guarda el token en una variable
+  de módulo (por VU); el usuario se elige con `(exec.vu.idInTest - 1) % n`.
+- `lib/datos.js`: `SharedArray` de `data/restricciones.json` (7 perfiles), reparto con
+  `exec.scenario.iterationInTest % length`. `open()` con ruta relativa al módulo (`../data/...`) funciona.
+- `lib/flujos.js`: `flujoNavegante()` (group `navegante`) y `flujoCliente(usuarios)` (group
+  `cliente`). Etiqueta `tipo` (publico/login/pizza/rating/registro) y `perfil` en pizza.
+- `lib/thresholds.js`: `thresholdsGenerales` y `thresholdsSmoke` (rate==0 / ==1).
+- Hallazgos de la API: `maxCaloriesPerSlice` **no se respeta** (no se comprueba); `mustBeVegetarian`
+  **sí** (`vegetarian: true` en la respuesta, comprobado); el mismo usuario recibe siempre el
+  mismo token; 32 toppings y tools `Knife`, `Pizza cutter`, `Scissors`.
+- Resultados (2026-11-05, app recreada): smoke → exit 0, pizza p(95) 115 ms, públicos 2,7 ms.
+  Load → exit 0, 4178 peticiones (13,8/s), 0% errores, pizza p(95) 126 ms / p(99) 175 ms, login
+  p(95) 150 ms, públicos 2,9 ms. `docker stats` (CPU, base 100% = 1 núcleo): QuickPizza ≤ 23%
+  (de 200% disponible), k6 ≤ 9%, memoria de QuickPizza 12 → 15 MB. El load está lejos de saturar.
+- Para el load se usó `docker run -d --name k6-load` + muestreo de `docker stats` + `docker wait`/`logs`.
 - El usuario creó `.env` (`BASE_URL=http://quickpizza:3333`, ignorado por git) y `.env.example`.
   Ejecución con `--env-file .env`. A veces usa **Git Bash**: convierte `/k6/...` en
   `C:/Program Files/Git/...` → usar `MSYS_NO_PATHCONV=1` y `"$(pwd -W)/k6:/k6:ro"`, o PowerShell
@@ -174,6 +197,7 @@ fase, actualizarla al cerrar cada fase), `.gitignore`, este `CLAUDE.md`.
 2. Verificar la nueva ruta del proyecto y que `docker info` responde.
 3. Levantar la app: `docker compose up -d --wait` y comprobar `docker compose ps` (healthy).
 4. Recordar el commit pendiente si el usuario aún no lo ha hecho.
-5. Empezar la **Fase 4**: implementar según `docs/plan-de-pruebas.md`. Proponer primero la
-   estructura de `k6/lib/` (config/BASE_URL, auth, thresholds, datos) con opciones; ampliar el
-   smoke a los dos escenarios.
+5. Continuar con la **Fase 4b**: `stress.js`, `spike.js`, `soak.js` con `ramping-arrival-rate`
+   (stress/spike) reutilizando `lib/`. Explicar `preAllocatedVUs`/`maxVUs`, `dropped_iterations`,
+   `abortOnFail`, `startTime` y los thresholds `{scenario:...}`. Ajustar el factor del spike
+   según el resultado del stress.

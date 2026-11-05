@@ -93,8 +93,8 @@ lista. Esto permite usar `docker compose up --wait`.
 
 ### 2. Smoke test
 
-Valida que el script y la app funcionan con carga mínima (1 VU, 30 s). Con la app levantada,
-desde la raíz del proyecto:
+Valida que los scripts y la app funcionan con carga mínima: 1 VU navegante y 1 VU cliente
+durante 30 s. Con la app levantada, desde la raíz del proyecto:
 
 ```powershell
 docker run --rm --network perf-net -e BASE_URL=http://quickpizza:3333 -v "${PWD}/k6:/k6:ro" grafana/k6:2.3.0 run /k6/scripts/smoke.js
@@ -115,7 +115,8 @@ Alternativa con archivo de variables: copia `.env.example` a `.env` y sustituye
 > como volumen.
 
 Criterios de aceptación (thresholds): 0% de peticiones fallidas, 100% de checks correctos y
-`p(95)` < 500 ms.
+los límites de latencia por tipo de endpoint del
+[plan de pruebas](docs/plan-de-pruebas.md#7-thresholds-generales-load-soak-y-recuperación-del-spike).
 
 #### Cómo leer el resultado
 
@@ -126,7 +127,9 @@ Criterios de aceptación (thresholds): 0% de peticiones fallidas, 100% de checks
 | `http_req_failed` | % de peticiones fallidas (status ≥ 400 o error de conexión) | *Error %* |
 | `http_reqs` | Total de peticiones y peticiones/segundo | *Samples* / *Throughput* |
 | `checks` | % de validaciones correctas | Resultados de las Assertions |
-| `iterations` | Veces que se completó la `default function` | Iteraciones del Thread Group |
+| `iterations` | Veces que se completó la función de un VU | Iteraciones del Thread Group |
+| `http_req_duration{tipo:pizza}` | Latencia solo de las peticiones con esa etiqueta | Fila de un label en el Aggregate Report |
+| `group_duration` | Duración total de un `group()` | Transaction Controller |
 
 #### Código de salida (lo que usará Jenkins)
 
@@ -135,5 +138,47 @@ Criterios de aceptación (thresholds): 0% de peticiones fallidas, 100% de checks
 | `0` | Todo correcto, thresholds cumplidos |
 | `99` | Algún threshold no se cumplió (p. ej. `BASE_URL=http://localhost:3333` desde el contenedor) |
 | `107` | Error del script (p. ej. falta `BASE_URL`) |
+
+### 3. Pruebas de carga
+
+Todas se lanzan igual que el smoke, cambiando solo el script. Conviene recrear la app antes de
+cada una para partir de una BD vacía:
+
+```powershell
+docker compose up -d --force-recreate --wait
+docker run --rm --network perf-net --env-file .env -v "${PWD}/k6:/k6:ro" grafana/k6:2.3.0 run /k6/scripts/load.js
+```
+
+| Script | Prueba | Carga | Duración |
+|---|---|---|---|
+| `smoke.js` | Smoke | 1 navegante + 1 cliente | 30 s |
+| `load.js` | Load | Rampa a 20 VUs (12 navegantes + 8 clientes) | 5 min |
+
+Detalle de objetivos y criterios: [docs/plan-de-pruebas.md](docs/plan-de-pruebas.md).
+
+#### Organización del código k6
+
+```text
+k6/
+├── lib/
+│   ├── config.js       BASE_URL obligatoria, think time aleatorio
+│   ├── auth.js         creación de usuarios (setup) y login con token reutilizado por VU
+│   ├── datos.js        perfiles de restricciones con SharedArray
+│   ├── flujos.js       recorridos "navegante" y "cliente" (≈ Test Fragments)
+│   └── thresholds.js   criterios de aceptación reutilizables
+├── data/
+│   └── restricciones.json
+└── scripts/            un script fino por prueba: solo define la carga (scenarios)
+```
+
+| k6 | JMeter |
+|---|---|
+| Recorrido en `lib/flujos.js` | Test Fragment + Module Controller |
+| `scenarios` en cada script | Thread Groups del plan |
+| `setup()` | setUp Thread Group |
+| `SharedArray` + `restricciones.json` | CSV Data Set Config (*All threads*, *Recycle on EOF*) |
+| `group()` | Transaction Controller |
+| `check()` | Response Assertion (sin detener la prueba) |
+| Etiqueta `tipo` | Nombre (label) del sampler |
 
 Se irá completando fase a fase.

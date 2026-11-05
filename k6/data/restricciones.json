@@ -1,0 +1,32 @@
+[
+  {
+    "perfil": "sin_restricciones",
+    "restricciones": {}
+  },
+  {
+    "perfil": "vegetariana",
+    "restricciones": { "mustBeVegetarian": true }
+  },
+  {
+    "perfil": "sin_carne_procesada",
+    "restricciones": {
+      "excludedIngredients": ["Pepperoni", "Sausage", "Bacon", "Ham", "Salami", "Prosciutto"]
+    }
+  },
+  {
+    "perfil": "ligera",
+    "restricciones": { "maxCaloriesPerSlice": 500, "maxNumberOfToppings": 3, "minNumberOfToppings": 2 }
+  },
+  {
+    "perfil": "sin_cuchillo",
+    "restricciones": { "excludedTools": ["Knife"] }
+  },
+  {
+    "perfil": "cargada",
+    "restricciones": { "minNumberOfToppings": 5, "maxNumberOfToppings": 7 }
+  },
+  {
+    "perfil": "personalizada",
+    "restricciones": { "customName": "Pizza k6", "excludedIngredients": ["Pineapple"] }
+  }
+]
