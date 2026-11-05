@@ -51,8 +51,8 @@ Actúa como **profesor de desarrollo**:
 | 0 | Diagnóstico del entorno, estructura de carpetas, README inicial, `.gitignore` | ✅ Hecha |
 | 1 | `docker-compose.yml` con QuickPizza en red propia `perf-net`. Explicar redes de Docker, resolución por nombre de contenedor y por qué importa para Jenkins. Healthcheck y verificar que responde | ✅ Hecha |
 | 2 | Primer test smoke con pocos VUs. Explicar anatomía (`options`, `default function`, `check`, `sleep`) y el resumen (`http_req_duration`, `p(95)`, `http_req_failed`…). `BASE_URL` como variable de entorno y por qué no se hardcodea | ✅ Hecha |
-| 3 | Plan de pruebas en `docs/plan-de-pruebas.md` (tabla: objetivo, escenario, carga, duración, criterio de aceptación). Explicar VU, iteración, escenario y su relación con el Thread Group | ⏭️ Siguiente |
-| 4 | Implementar los scripts reutilizando `k6/lib/` (helpers de auth, thresholds, datos). Explicar `SharedArray` frente al CSV Data Set. Usar `check`, `group`, `scenarios`, `thresholds` explicando cada uno | ⏳ |
+| 3 | Plan de pruebas en `docs/plan-de-pruebas.md` (tabla: objetivo, escenario, carga, duración, criterio de aceptación). Explicar VU, iteración, escenario y su relación con el Thread Group | ✅ Hecha |
+| 4 | Implementar los scripts reutilizando `k6/lib/` (helpers de auth, thresholds, datos). Explicar `SharedArray` frente al CSV Data Set. Usar `check`, `group`, `scenarios`, `thresholds` explicando cada uno | ⏭️ Siguiente |
 | 5 | Jenkins en el compose (misma red). Antes: opciones para ejecutar k6 desde Jenkins (contenedor `grafana/k6` como agente/paso vs. imagen custom de Jenkins con k6) con pros y contras y recomendación. Explicar el acceso a Docker desde Jenkins y sus implicaciones de seguridad | ⏳ |
 | 6 | `Jenkinsfile` declarativo: levantar/verificar app → smoke → load → publicar resultados (JSON/HTML como artefacto). Si falla un threshold, falla el build (equivalente automatizado de las aserciones de JMeter). Parametrizar el tipo de prueba | ⏳ |
 | 7 | (Opcional) InfluxDB + Grafana, enviar métricas de k6, dashboard. Comparar con Listeners/reportes de JMeter | ⏳ |
@@ -70,7 +70,7 @@ Actúa como **profesor de desarrollo**:
 
 Flujos mínimos: endpoints públicos, login/registro, generación de pizza autenticada y rating.
 
-## Estado actual (al cerrar la Fase 2)
+## Estado actual (al cerrar la Fase 3)
 
 ### Entorno verificado
 - Windows 11 Home Single Language 10.0.26200, 64 bits. Docker Desktop con backend **WSL 2**.
@@ -97,8 +97,30 @@ Las carpetas vacías tienen `.gitkeep`. Archivos creados: `README.md` (con tabla
 fase, actualizarla al cerrar cada fase), `.gitignore`, este `CLAUDE.md`.
 
 ### Decisiones y pendientes
-- **git:** rama `calidad`. Fase 1 ya commiteada por el usuario (`067b6c8`). El usuario hace los
-  commits; Claude solo avisa y propone mensaje. **Pendiente:** commit de la Fase 2.
+- **git:** rama `calidad`. Fases 1 y 2 ya commiteadas por el usuario. El usuario hace los
+  commits; Claude solo avisa y propone mensaje. **Pendiente:** commit de la Fase 3.
+- El usuario creó `.env` (`BASE_URL=http://quickpizza:3333`, ignorado por git) y `.env.example`.
+  Ejecución con `--env-file .env`. A veces usa **Git Bash**: convierte `/k6/...` en
+  `C:/Program Files/Git/...` → usar `MSYS_NO_PATHCONV=1` y `"$(pwd -W)/k6:/k6:ro"`, o PowerShell
+  (recomendado y documentado en el README).
+
+### Decisiones de la Fase 3 (detalle en `docs/plan-de-pruebas.md`)
+- **Modelo híbrido:** smoke/load/soak con `ramping-vus` (cerrado); stress/spike con
+  `ramping-arrival-rate` (abierto, vigilar `dropped_iterations`).
+- **Dos escenarios en paralelo:** `navegantes` (~60%: GET quotes → names, think time 1-3 s) y
+  `clientes` (~40%: POST pizza con restricciones de `k6/data/` vía SharedArray → POST rating,
+  think time 2-4 s). Usuarios creados en `setup()`; login una vez por VU con el token reutilizado.
+- Load: 0 → 20 VUs (12 + 8), 5 min (1/3/1). Stress: escalones de 1×, 2×, 4×, 8× y 16× de 2 min,
+  exploratorio, abortar con errores > 10%. Spike: clientes 1× → 10× → 1×, navegantes constante;
+  recuperación como escenario propio con `startTime` y thresholds `{scenario:recuperacion}`.
+  Soak: 10 VUs, 20 min (duración configurable por env); p(95) de pizza al final ≤ 120% del inicio.
+- Thresholds generales: `http_req_failed < 1%`, `checks > 99%`, públicos p(95) < 200 ms,
+  pizza p(95) < 500 ms y p(99) < 1000 ms, login p(95) < 500 ms (por tipo de endpoint → tags).
+- **QuickPizza limitado a `cpus: 2`, `mem_limit: 512m`** en el compose (uso en reposo ≈ 17 MB).
+- Línea base medida (1 usuario): públicos ≈ 3 ms, login ≈ 60 ms, registro ≈ 66 ms, pizza
+  24-107 ms, rating ≈ 8 ms. Máquina: Ryzen 7 5700U 8c/16t, Docker con 7,6 GB.
+- Política: smoke como gate → load por defecto en Jenkins; stress/spike/soak bajo demanda.
+  Recrear la app antes de cada prueba: `docker compose up -d --force-recreate --wait`.
 - El PATH de la sesión de VS Code sigue sin Docker: en cada comando anteponer
   `$env:Path = "$env:LOCALAPPDATA\Programs\DockerDesktop\resources\bin;$env:Path"` (PowerShell).
 
@@ -152,5 +174,6 @@ fase, actualizarla al cerrar cada fase), `.gitignore`, este `CLAUDE.md`.
 2. Verificar la nueva ruta del proyecto y que `docker info` responde.
 3. Levantar la app: `docker compose up -d --wait` y comprobar `docker compose ps` (healthy).
 4. Recordar el commit pendiente si el usuario aún no lo ha hecho.
-5. Empezar la **Fase 3**: `docs/plan-de-pruebas.md`, partiendo de la "Propuesta base de pruebas"
-   y del p(95) ≈ 3 ms observado en el smoke. Explicar VU, iteración y escenario frente al Thread Group.
+5. Empezar la **Fase 4**: implementar según `docs/plan-de-pruebas.md`. Proponer primero la
+   estructura de `k6/lib/` (config/BASE_URL, auth, thresholds, datos) con opciones; ampliar el
+   smoke a los dos escenarios.

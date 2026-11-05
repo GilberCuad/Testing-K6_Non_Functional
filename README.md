@@ -15,7 +15,7 @@ que habitualmente se hacen con JMeter, ejecutadas desde un **Jenkins local en Do
 | 0 | Diagnóstico del entorno y estructura | ✅ Hecha |
 | 1 | Docker Compose con QuickPizza (red `perf-net`) | ✅ Hecha |
 | 2 | Primer test (smoke) | ✅ Hecha |
-| 3 | Plan de pruebas (`docs/plan-de-pruebas.md`) | ⏳ Pendiente |
+| 3 | Plan de pruebas ([`docs/plan-de-pruebas.md`](docs/plan-de-pruebas.md)) | ✅ Hecha |
 | 4 | Implementación de los tests (load, stress, spike, soak) | ⏳ Pendiente |
 | 5 | Jenkins en Docker | ⏳ Pendiente |
 | 6 | Pipeline (`Jenkinsfile`) | ⏳ Pendiente |
@@ -67,6 +67,9 @@ docker compose ps             # quickpizza-ready debe aparecer como (healthy)
 - Navegador / Windows: <http://localhost:3333> (publicado solo en `127.0.0.1`).
 - Desde otros contenedores (k6, Jenkins): `http://quickpizza:3333`, conectándolos a la red `perf-net`.
 - La base de datos es SQLite **en memoria**: al recrear el contenedor se pierden usuarios y ratings.
+- QuickPizza está **limitado a 2 CPUs y 512 MB** para que se sature antes que k6, que corre en la
+  misma máquina (ver [plan de pruebas](docs/plan-de-pruebas.md#2-entorno-y-limitaciones)).
+- Para empezar con la BD vacía: `docker compose up -d --force-recreate --wait`.
 
 Verificación rápida:
 
@@ -103,6 +106,13 @@ docker run --rm --network perf-net -e BASE_URL=http://quickpizza:3333 -v "${PWD}
 | `-e BASE_URL=...` | URL objetivo. **Obligatoria**: el script se detiene si falta, para no apuntar nunca a un entorno equivocado |
 | `-v "${PWD}/k6:/k6:ro"` | Monta los scripts en el contenedor, en solo lectura |
 | `grafana/k6:2.3.0` | Versión fijada de k6 |
+
+Alternativa con archivo de variables: copia `.env.example` a `.env` y sustituye
+`-e BASE_URL=...` por `--env-file .env` (`-e` tiene prioridad si se usan ambos).
+
+> **Git Bash:** convierte `/k6/...` en `C:/Program Files/Git/k6/...` y k6 no encuentra el
+> script. Usa PowerShell, o en Git Bash antepón `MSYS_NO_PATHCONV=1` y usa `"$(pwd -W)/k6:/k6:ro"`
+> como volumen.
 
 Criterios de aceptación (thresholds): 0% de peticiones fallidas, 100% de checks correctos y
 `p(95)` < 500 ms.

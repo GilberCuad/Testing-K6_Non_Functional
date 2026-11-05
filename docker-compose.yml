@@ -21,6 +21,11 @@ services:
     networks:
       - perf-net
     restart: unless-stopped
+    # Límites de recursos: k6 corre en la misma máquina, así que acotamos la app
+    # para que se sature ella (y no el generador de carga) en stress/spike.
+    # Simula un servidor pequeño y hace reproducible el punto de quiebre.
+    cpus: 2
+    mem_limit: 512m
 
   # "Vigía": contenedor mínimo con curl cuyo único trabajo es comprobar
   # /ready de quickpizza a través de perf-net, usando el NOMBRE DEL SERVICIO
